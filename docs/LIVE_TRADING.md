@@ -80,3 +80,23 @@ Z některých sítí vrací Binance HTTP 451. Pak:
 - použij VPN/povolenou síť, nebo
 - nastav `BINANCE_BASE_URL` na dostupný endpoint (např. Binance.US, pokud ho používáš),
 - případně zůstaň u paper/dry-run.
+
+
+## 2denní test
+
+Bez Binance účtu (paper simulace):
+
+```bash
+./scripts/run_2day_test.sh
+# nebo:
+python bot.py live --days 2 --poll 300 --strategy sma --log logs/2day_paper.log
+tail -f logs/2day_paper.log
+```
+
+S dry-run exchange (pořád bez reálných peněz):
+
+```bash
+MODE=dry-run ./scripts/run_2day_test.sh
+```
+
+Stav se ukládá do `logs/*_state.json` — po restartu můžeš pokračovat.

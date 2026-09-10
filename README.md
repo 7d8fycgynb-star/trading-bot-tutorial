@@ -65,6 +65,27 @@ python bot.py trade --mode dry-run --iterations 3
 # live až po ENABLE_LIVE_TRADING + LIVE_CONFIRM=ANO_CHCI_REALNE_PENIZE
 ```
 
+
+
+## 2denní test
+
+Bez Binance účtu (paper simulace):
+
+```bash
+./scripts/run_2day_test.sh
+# nebo:
+python bot.py live --days 2 --poll 300 --strategy sma --log logs/2day_paper.log
+tail -f logs/2day_paper.log
+```
+
+S dry-run exchange (pořád bez reálných peněz):
+
+```bash
+MODE=dry-run ./scripts/run_2day_test.sh
+```
+
+Stav se ukládá do `logs/*_state.json` — po restartu můžeš pokračovat.
+
 ## Disclaimer
 
 Vzdělávací projekt. Nejde o investiční, daňové ani obchodní poradenství.

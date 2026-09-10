@@ -7,7 +7,8 @@ Příklady:
   python bot.py account
   python bot.py order --side BUY --quote 10
   python bot.py trade --iterations 3
-  python bot.py trade --mode live --iterations 1   # jen s pojistkami
+  python bot.py trade --mode dry-run --days 2 --poll 300 --log logs/2day.log
+  python bot.py live --days 2 --poll 300 --log logs/2day_paper.log
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from src.exchange import (
 )
 from src.live_paper import LivePaperConfig, run_live_paper
 from src.live_trader import LiveTradeConfig, run_live_trader
+from src.loop_utils import resolve_duration_seconds
 from src.market import closes, fetch_binance_klines, load_candles_from_csv
 from src.reporter import (
     export_equity_csv,
@@ -127,9 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     live = sub.add_parser("live", help="Paper live loop (bez exchange orderů)")
     live.add_argument("--strategy", default=settings.strategy, choices=sorted(STRATEGIES))
-    live.add_argument("--poll", type=int, default=5)
-    live.add_argument("--iterations", type=int, default=3)
+    live.add_argument("--poll", type=int, default=300, help="Sekundy mezi kontrolami (default 5 min)")
+    live.add_argument("--iterations", type=int, default=None, help="Max iterací (s --days nech prázdné)")
+    live.add_argument("--days", type=float, default=None, help="Jak dlouho běžet (např. 2)")
+    live.add_argument("--hours", type=float, default=None)
+    live.add_argument("--minutes", type=float, default=None)
     live.add_argument("--lookback", type=int, default=settings.limit)
+    live.add_argument("--log", type=str, default="")
+    live.add_argument("--state", type=str, default="logs/paper_state.json")
     _add_common(live)
 
     account = sub.add_parser("account", help="Zůstatky (dry-run/testnet/live)")
@@ -152,10 +159,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     trade.add_argument("--mode", default=settings.trading_mode, choices=[m.value for m in TradingMode])
     trade.add_argument("--strategy", default=settings.strategy, choices=sorted(STRATEGIES))
-    trade.add_argument("--poll", type=int, default=5)
-    trade.add_argument("--iterations", type=int, default=3)
+    trade.add_argument("--poll", type=int, default=300, help="Sekundy mezi kontrolami (default 5 min)")
+    trade.add_argument("--iterations", type=int, default=None)
+    trade.add_argument("--days", type=float, default=None)
+    trade.add_argument("--hours", type=float, default=None)
+    trade.add_argument("--minutes", type=float, default=None)
     trade.add_argument("--lookback", type=int, default=settings.limit)
     trade.add_argument("--quote", type=float, default=settings.quote_per_buy)
+    trade.add_argument("--log", type=str, default="")
+    trade.add_argument("--state", type=str, default="logs/trade_state.json")
     _add_common(trade)
 
     return parser
@@ -233,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "live":
         strategy = build_strategy(args.strategy, fast=args.fast, slow=args.slow)
+        duration = resolve_duration_seconds(days=args.days, hours=args.hours, minutes=args.minutes)
+        iterations = args.iterations
+        if duration is None and iterations is None:
+            iterations = 3  # bezpečný default pro krátký test
         try:
             run_live_paper(
                 strategy,
@@ -244,7 +260,10 @@ def main(argv: list[str] | None = None) -> int:
                     interval=args.interval,
                     lookback=args.lookback,
                     poll_seconds=args.poll,
-                    max_iterations=args.iterations,
+                    max_iterations=iterations,
+                    duration_seconds=duration,
+                    log_file=args.log or None,
+                    state_file=args.state or None,
                 ),
             )
         except RuntimeError as exc:
@@ -300,6 +319,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             client = _build_client(args.mode)
             strategy = build_strategy(args.strategy, fast=args.fast, slow=args.slow)
+            duration = resolve_duration_seconds(days=args.days, hours=args.hours, minutes=args.minutes)
+            iterations = args.iterations
+            if duration is None and iterations is None:
+                iterations = 3
             run_live_trader(
                 strategy,
                 client,
@@ -309,8 +332,11 @@ def main(argv: list[str] | None = None) -> int:
                     interval=args.interval,
                     lookback=args.lookback,
                     poll_seconds=args.poll,
-                    max_iterations=args.iterations,
+                    max_iterations=iterations,
+                    duration_seconds=duration,
                     quote_per_buy=args.quote,
+                    log_file=args.log or None,
+                    state_file=args.state or None,
                 ),
             )
         except (ExchangeError, RuntimeError) as exc:
