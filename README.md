@@ -1,10 +1,14 @@
 # KOMISE — maturitní četba
 
+Otevři a uč se (nic instalovat nemusíš):
+
+**https://raw.githack.com/7d8fycgynb-star/trading-bot-tutorial/gh-pages/index.html**
+
 Aplikace na učení 20 děl ze seznamu maturitní četby. Má být zábavná, ať u toho neusneš, a zároveň tě pořádně přezkoušet: kvízy, doplňovačky, párování, ústní u komise a opakování chyb.
 
 Obsah vychází z rozborů `maturitni_rozbory_komplet_v5.pdf` (Molière až Dousková).
 
-## Spuštění
+## Spuštění u sebe
 
 ```bash
 npm install

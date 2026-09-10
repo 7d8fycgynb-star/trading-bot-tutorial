@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host --port 4173"
+    "preview": "vite preview --host --port 4173",
+    "standalone": "npm run build && node scripts/make-standalone.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",

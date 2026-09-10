@@ -1,0 +1,35 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const dist = join(root, "dist");
+const html = readFileSync(join(dist, "index.html"), "utf8");
+const cssName = html.match(/href="\.\/assets\/([^"]+\.css)"/)?.[1];
+const jsName = html.match(/src="\.\/assets\/([^"]+\.js)"/)?.[1];
+if (!cssName || !jsName) throw new Error("Could not find built assets");
+
+const css = readFileSync(join(dist, "assets", cssName), "utf8");
+const js = readFileSync(join(dist, "assets", jsName), "utf8").replace(/<\/script/gi, "<\\/script");
+
+const standalone = `<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KOMISE — maturitní četba</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23100c09' width='32' height='32' rx='8'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='15' fill='%23e8b86d' font-family='Georgia,serif'%3EK%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>${css}</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>${js}</script>
+  </body>
+</html>
+`;
+
+writeFileSync(join(root, "komise.html"), standalone);
+console.log(`Wrote komise.html (${Math.round(standalone.length / 1024)} kB)`);
