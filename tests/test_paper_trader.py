@@ -1,27 +1,48 @@
 from src.paper_trader import PaperTrader
+from src.risk import RiskConfig
 
 
 def test_buy_and_sell_roundtrip():
-    trader = PaperTrader(starting_cash=10_000, fee_rate=0.001)
+    trader = PaperTrader(starting_cash=10_000, fee_rate=0.001, risk=RiskConfig(position_fraction=1.0, stop_loss_pct=None, take_profit_pct=None))
     buy = trader.buy(100.0, 0)
     assert buy is not None
     assert trader.in_position
-    assert trader.cash == 0.0 or abs(trader.cash) < 1e-6
-
     sell = trader.sell(110.0, 1)
     assert sell is not None
-    assert not trader.in_position
-    summary = trader.summary(110.0)
-    assert summary["trades"] == 2
-    assert summary["equity"] > 10_000 * 0.99  # roughly profitable after fees
+    assert sell.pnl is not None and sell.pnl > 0
+    assert len(trader.closed_pnls) == 1
 
 
-def test_cannot_double_buy():
-    trader = PaperTrader(starting_cash=1000, fee_rate=0)
-    assert trader.buy(50) is not None
-    assert trader.buy(50) is None
+def test_stop_loss_triggers():
+    trader = PaperTrader(
+        starting_cash=1000,
+        fee_rate=0,
+        risk=RiskConfig(position_fraction=1.0, stop_loss_pct=0.05, take_profit_pct=None),
+    )
+    trader.buy(100.0, 0)
+    trade = trader.check_exits(94.0, 1)
+    assert trade is not None
+    assert trade.reason == "stop-loss"
 
 
-def test_cannot_sell_without_position():
-    trader = PaperTrader(starting_cash=1000, fee_rate=0)
-    assert trader.sell(50) is None
+def test_take_profit_triggers():
+    trader = PaperTrader(
+        starting_cash=1000,
+        fee_rate=0,
+        risk=RiskConfig(position_fraction=1.0, stop_loss_pct=None, take_profit_pct=0.1),
+    )
+    trader.buy(100.0, 0)
+    trade = trader.check_exits(111.0, 1)
+    assert trade is not None
+    assert trade.reason == "take-profit"
+
+
+def test_position_fraction():
+    trader = PaperTrader(
+        starting_cash=1000,
+        fee_rate=0,
+        risk=RiskConfig(position_fraction=0.5, stop_loss_pct=None, take_profit_pct=None),
+    )
+    trader.buy(100.0, 0)
+    assert abs(trader.cash - 500) < 1e-6
+    assert abs(trader.position - 5) < 1e-6

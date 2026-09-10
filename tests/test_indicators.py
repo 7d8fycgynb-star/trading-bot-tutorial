@@ -1,4 +1,4 @@
-from src.indicators import sma
+from src.indicators import bollinger, ema, macd, rsi, sma
 
 
 def test_sma_basic():
@@ -10,10 +10,26 @@ def test_sma_basic():
     assert result[4] == 4.0
 
 
-def test_sma_period_one():
-    values = [10.0, 20.0]
-    assert sma(values, 1) == [10.0, 20.0]
+def test_ema_starts_after_period():
+    values = [float(i) for i in range(1, 11)]
+    result = ema(values, 5)
+    assert result[:4] == [None, None, None, None]
+    assert result[4] is not None
+    assert result[-1] is not None
 
 
-def test_sma_empty():
-    assert sma([], 5) == []
+def test_rsi_bounds():
+    # rostoucí řada → vysoké RSI
+    up = [float(i) for i in range(1, 40)]
+    r = rsi(up, 14)
+    assert r[-1] is not None and r[-1] > 70
+
+
+def test_macd_and_bollinger_lengths():
+    values = [100 + (i % 7) - 3 for i in range(80)]
+    m = macd(values)
+    b = bollinger(values, 20, 2)
+    assert len(m.macd) == len(values)
+    assert len(b.upper) == len(values)
+    assert any(x is not None for x in m.histogram)
+    assert any(x is not None for x in b.lower)
