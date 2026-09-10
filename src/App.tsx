@@ -13,7 +13,6 @@ import {
 } from "./lib/storage";
 import { answersMatch, keywordHits, shuffle } from "./lib/text";
 import {
-  EXAMINER,
   examinerLine,
   matchRound,
   mixedQuestions,
@@ -581,6 +580,7 @@ function Match({
       </p>
       <div className="matchboard">
         <div className="options">
+          <div className="kicker">vyber tady</div>
           {left.map((item) => (
             <button
               key={`L${item.idx}`}
@@ -593,6 +593,7 @@ function Match({
           ))}
         </div>
         <div className="options">
+          <div className="kicker">spoj sem</div>
           {right.map((item) => (
             <button
               key={`R${item.idx}`}
@@ -709,7 +710,7 @@ function Oral({
       </div>
       {revealed && (
         <div className="feedback ok">
-          <b>{pickNLine()}</b>
+          <b>Vzor, jak to říct komisi</b>
           <p style={{ lineHeight: 1.55 }}>{q.answer}</p>
         </div>
       )}
@@ -717,6 +718,3 @@ function Oral({
   );
 }
 
-function pickNLine() {
-  return EXAMINER.correct[Math.floor(Math.random() * EXAMINER.correct.length)];
-}
