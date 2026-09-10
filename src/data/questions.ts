@@ -1,5 +1,5 @@
 import { BOOKS, bookLabel, type Book } from "./books";
-import { pickN, shuffle, unique } from "../lib/text";
+import { normalizeAnswer, pickN, shuffle, unique } from "../lib/text";
 
 export type QType = "mcq" | "blank" | "oral";
 
@@ -21,14 +21,75 @@ function others(book: Book) {
   return BOOKS.filter((b) => b.id !== book.id);
 }
 
+function sameAuthor(book: Book) {
+  return BOOKS.filter((b) => b.authorShort === book.authorShort);
+}
+
+function namesOverlap(a: string, b: string) {
+  const na = normalizeAnswer(a);
+  const nb = normalizeAnswer(b);
+  if (na.length < 4 || nb.length < 4) return false;
+  return na.includes(nb) || nb.includes(na);
+}
+
+function mentionsBook(text: string, book: Book) {
+  if (namesOverlap(text, book.title)) return true;
+  return book.aliases.some(
+    (alias) => alias.length > 3 && namesOverlap(alias, book.title) && namesOverlap(text, alias),
+  );
+}
+
+const GENERIC = new Set([
+  "komedie",
+  "tragedie",
+  "drama",
+  "epika",
+  "lyrika",
+  "novela",
+  "povidka",
+  "roman",
+  "proza",
+  "autor",
+  "dilo",
+  "dila",
+  "postava",
+  "motiv",
+  "tema",
+  "kontext",
+  "stoleti",
+  "literarni",
+  "historicky",
+  "klasicky",
+  "vypravec",
+  "satira",
+  "hrdina",
+  "hlavni",
+  "vedlejsi",
+]);
+
+/** True when the prompt already contains a distinctive piece of the answer. */
+function answerInPrompt(prompt: string, answer: string, book?: Book) {
+  if (book && mentionsBook(prompt, book) && mentionsBook(answer, book)) return true;
+  const promptNorm = normalizeAnswer(prompt);
+  const tokens = normalizeAnswer(answer)
+    .split(" ")
+    .filter((t) => t.length >= 6 && !GENERIC.has(t));
+  return tokens.some((t) => promptNorm.includes(t));
+}
+
+function usableCharacter(book: Book) {
+  return book.characters.find((c) => !namesOverlap(c.name, book.title)) ?? null;
+}
+
 function distractors(book: Book, pick: (b: Book) => string, n = 3) {
-  const pool = unique(others(book).map(pick).filter((v) => v && v !== pick(book)));
+  const value = pick(book);
+  const pool = unique(others(book).map(pick).filter((v) => v && v !== value));
   return pickN(pool, n);
 }
 
 function mcq(
   id: string,
-  book: Book,
+  book: Book | undefined,
   prompt: string,
   answer: string,
   wrong: string[],
@@ -36,19 +97,20 @@ function mcq(
   category: string,
   difficulty: 1 | 2 | 3 = 2,
 ): Question | null {
+  if (answerInPrompt(prompt, answer, book)) return null;
   const opts = unique([answer, ...wrong.filter(Boolean)]).filter((o) => o !== answer);
   if (opts.length < 2) return null;
   return {
     id,
     type: "mcq",
-    bookId: book.id,
+    bookId: book?.id,
     difficulty,
     category,
     prompt,
     options: shuffle([answer, ...pickN(opts, 3)]),
     answer,
     explanation,
-    aliases: book.aliases,
+    aliases: book?.aliases,
   };
 }
 
@@ -61,7 +123,8 @@ function blank(
   explanation: string,
   category: string,
   difficulty: 1 | 2 | 3 = 2,
-): Question {
+): Question | null {
+  if (answerInPrompt(prompt, answer, book)) return null;
   return {
     id,
     type: "blank",
@@ -98,33 +161,56 @@ function oral(
 
 function buildBank(): Question[] {
   const qs: Question[] = [];
+  const add = (q: Question | null | undefined) => {
+    if (q) qs.push(q);
+  };
+
+  const authorsDone = new Set<string>();
 
   for (const book of BOOKS) {
-    qs.push(
+    const siblings = sameAuthor(book);
+
+    add(
       mcq(
         `${book.id}-author`,
         book,
         `Kdo napsal dílo ${book.title}?`,
         book.authorFull,
         distractors(book, (b) => b.authorFull),
-        `${book.title} napsal/a ${book.authorFull} (${book.life}).`,
+        `${book.title} napsal/a ${book.authorFull} (${book.life}). ${siblings.length > 1 ? `Stejný autor má na seznamu i: ${siblings.filter((s) => s.id !== book.id).map((s) => s.title).join(", ")}.` : ""}`,
         "autor",
         1,
-      )!,
+      ),
     );
-    qs.push(
-      mcq(
-        `${book.id}-title-from-author`,
-        book,
-        `Které dílo patří ${book.authorShort}?`,
-        book.title,
-        distractors(book, (b) => b.title),
-        `${book.authorShort}: ${book.title}.`,
-        "dílo",
-        1,
-      )!,
-    );
-    qs.push(
+
+    if (siblings.length === 1) {
+      add(
+        mcq(
+          `${book.id}-title-from-author`,
+          book,
+          `Které dílo z četby patří autorovi ${book.authorShort}?`,
+          book.title,
+          distractors(book, (b) => b.title),
+          `${book.authorShort}: ${book.title}.`,
+          "dílo",
+          1,
+        ),
+      );
+      add(
+        blank(
+          `${book.id}-blank-title`,
+          book,
+          `Doplň název díla, které na seznamu napsal/a ${book.authorShort}.`,
+          book.title,
+          [book.title.replaceAll(".", "")],
+          `${book.authorShort}: ${book.title}`,
+          "dílo",
+          1,
+        ),
+      );
+    }
+
+    add(
       mcq(
         `${book.id}-kind`,
         book,
@@ -134,9 +220,9 @@ function buildBank(): Question[] {
         `${book.title} je ${book.kind.toLowerCase()}. Žánr: ${book.genre}.`,
         "druh",
         1,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-genre`,
         book,
@@ -146,9 +232,9 @@ function buildBank(): Question[] {
         `${book.title} = ${book.genre}.`,
         "žánr",
         2,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-period`,
         book,
@@ -158,33 +244,52 @@ function buildBank(): Question[] {
         `${book.title}: ${book.period}. ${book.periodDetail}`,
         "kontext",
         2,
-      )!,
+      ),
     );
-    qs.push(
-      mcq(
-        `${book.id}-setting`,
-        book,
-        `Kde se odehrává ${book.title}?`,
-        book.setting,
-        distractors(book, (b) => b.setting),
-        `Časoprostor: ${book.setting}. ${book.timeFrame}.`,
-        "časoprostor",
-        2,
-      )!,
-    );
-    qs.push(
-      mcq(
-        `${book.id}-time`,
-        book,
-        `Jaký je časový rámec díla ${book.title}?`,
-        book.timeFrame,
-        distractors(book, (b) => b.timeFrame),
-        book.timeFrame,
-        "časoprostor",
-        2,
-      )!,
-    );
-    qs.push(
+
+    if (!mentionsBook(book.setting, book)) {
+      add(
+        mcq(
+          `${book.id}-setting`,
+          book,
+          `Kde se odehrává ${book.title}?`,
+          book.setting,
+          distractors(book, (b) => b.setting),
+          `Časoprostor: ${book.setting}. ${book.timeFrame}.`,
+          "časoprostor",
+          2,
+        ),
+      );
+      add(
+        mcq(
+          `${book.id}-setting-rev`,
+          book,
+          `Které dílo se odehrává zde: ${book.setting}?`,
+          book.title,
+          distractors(book, (b) => b.title),
+          `${book.title}: ${book.setting}.`,
+          "časoprostor",
+          2,
+        ),
+      );
+    }
+
+    if (!mentionsBook(book.timeFrame, book)) {
+      add(
+        mcq(
+          `${book.id}-time`,
+          book,
+          `Jaký je časový rámec díla ${book.title}?`,
+          book.timeFrame,
+          distractors(book, (b) => b.timeFrame),
+          book.timeFrame,
+          "časoprostor",
+          2,
+        ),
+      );
+    }
+
+    add(
       mcq(
         `${book.id}-narrator`,
         book,
@@ -194,9 +299,9 @@ function buildBank(): Question[] {
         book.narrator,
         "vypravěč",
         2,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-verse`,
         book,
@@ -206,9 +311,9 @@ function buildBank(): Question[] {
         book.verse,
         "verš",
         2,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-composition`,
         book,
@@ -218,9 +323,9 @@ function buildBank(): Question[] {
         book.composition,
         "kompozice",
         3,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-theme`,
         book,
@@ -230,9 +335,9 @@ function buildBank(): Question[] {
         `Téma: ${book.theme} Motivy: ${book.motifs.join(", ")}.`,
         "téma",
         2,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-language`,
         book,
@@ -242,9 +347,9 @@ function buildBank(): Question[] {
         book.language,
         "jazyk",
         3,
-      )!,
+      ),
     );
-    qs.push(
+    add(
       mcq(
         `${book.id}-tropes`,
         book,
@@ -254,21 +359,9 @@ function buildBank(): Question[] {
         `${book.tropes} Funkce: ${book.tropesFunction}`,
         "tropy",
         3,
-      )!,
+      ),
     );
-    qs.push(
-      mcq(
-        `${book.id}-fun`,
-        book,
-        `Který fakt platí o autorovi díla ${book.title}?`,
-        book.funFact,
-        distractors(book, (b) => b.funFact),
-        `${book.authorFull}: ${book.funFact}`,
-        "autor",
-        2,
-      )!,
-    );
-    qs.push(
+    add(
       mcq(
         `${book.id}-context`,
         book,
@@ -278,88 +371,104 @@ function buildBank(): Question[] {
         book.literaryContext,
         "kontext",
         3,
-      )!,
-    );
-
-    const main = book.characters[0];
-    if (main) {
-      qs.push(
-        mcq(
-          `${book.id}-char0`,
-          book,
-          `Ve kterém díle vystupuje ${main.name}?`,
-          book.title,
-          distractors(book, (b) => b.title),
-          `${main.name} (${main.about}) — ${bookLabel(book)}.`,
-          "postavy",
-          1,
-        )!,
-      );
-      qs.push(
-        mcq(
-          `${book.id}-char0-who`,
-          book,
-          `Kdo je ${main.name} v díle ${book.title}?`,
-          main.about,
-          pickN(
-            others(book).flatMap((b) => b.characters.map((c) => c.about)),
-            3,
-          ),
-          `${main.name}: ${main.about}.`,
-          "postavy",
-          2,
-        )!,
-      );
-    }
-
-    if (book.characters[1]) {
-      qs.push(
-        mcq(
-          `${book.id}-char1`,
-          book,
-          `Která postava patří do díla ${book.title}?`,
-          book.characters[1].name,
-          pickN(
-            others(book).flatMap((b) => b.characters.map((c) => c.name)),
-            3,
-          ),
-          `${book.characters[1].name}: ${book.characters[1].about}.`,
-          "postavy",
-          2,
-        )!,
-      );
-    }
-
-    const motif = book.motifs[0];
-    qs.push(
-      mcq(
-        `${book.id}-motif`,
-        book,
-        `Který motiv je ústřední pro ${book.title}?`,
-        motif,
-        pickN(
-          unique(others(book).flatMap((b) => b.motifs)).filter((m) => !book.motifs.includes(m)),
-          3,
-        ),
-        `Motivy ${book.title}: ${book.motifs.join(", ")}.`,
-        "motivy",
-        2,
-      )!,
-    );
-
-    qs.push(
-      blank(
-        `${book.id}-blank-title`,
-        book,
-        `Doplň název: ${book.authorShort} napsal/a „____“. (dílo z tvého seznamu)`,
-        book.title,
-        [book.title.replaceAll(".", "")],
-        `${book.authorShort}: ${book.title}`,
-        "dílo",
-        1,
       ),
     );
-    qs.push(
+
+    if (!authorsDone.has(book.authorShort)) {
+      authorsDone.add(book.authorShort);
+      add(
+        mcq(
+          `${book.authorShort}-fun`,
+          book,
+          `Který fakt platí o autorovi ${book.authorShort}?`,
+          book.funFact,
+          unique(BOOKS.filter((b) => b.authorShort !== book.authorShort).map((b) => b.funFact)),
+          `${book.authorFull}: ${book.funFact}`,
+          "autor",
+          2,
+        ),
+      );
+    }
+
+    const face = usableCharacter(book);
+    if (face) {
+      add(
+        mcq(
+          `${book.id}-char-work`,
+          book,
+          `Ve kterém díle vystupuje ${face.name}?`,
+          book.title,
+          distractors(book, (b) => b.title),
+          `${face.name} (${face.about}) — ${bookLabel(book)}.`,
+          "postavy",
+          1,
+        ),
+      );
+      if (!mentionsBook(face.about, book)) {
+        add(
+          mcq(
+            `${book.id}-char-who`,
+            book,
+            `Kdo je ${face.name}?`,
+            `${face.about} (${book.title})`,
+            pickN(
+              others(book).flatMap((b) => {
+                const c = usableCharacter(b);
+                return c ? [`${c.about} (${b.title})`] : [];
+              }),
+              3,
+            ),
+            `${face.name}: ${face.about}. Dílo: ${book.title}.`,
+            "postavy",
+            2,
+          ),
+        );
+      }
+    }
+
+    const extraChar = book.characters.find(
+      (c, i) => i > 0 && !namesOverlap(c.name, book.title) && c.name !== face?.name,
+    );
+    if (extraChar) {
+      add(
+        mcq(
+          `${book.id}-char-extra`,
+          book,
+          `Která postava patří do díla ${book.title}?`,
+          extraChar.name,
+          pickN(
+            others(book)
+              .flatMap((b) => b.characters.map((c) => c.name))
+              .filter((n) => !namesOverlap(n, book.title)),
+            3,
+          ),
+          `${extraChar.name}: ${extraChar.about}.`,
+          "postavy",
+          2,
+        ),
+      );
+    }
+
+    const motif = book.motifs.find((m) => !namesOverlap(m, book.title));
+    if (motif) {
+      add(
+        mcq(
+          `${book.id}-motif`,
+          book,
+          `Který motiv je ústřední pro ${book.title}?`,
+          motif,
+          pickN(
+            unique(others(book).flatMap((b) => b.motifs)).filter((m) => !book.motifs.includes(m)),
+            3,
+          ),
+          `Motivy ${book.title}: ${book.motifs.join(", ")}.`,
+          "motivy",
+          2,
+        ),
+      );
+    }
+
+    add(
       blank(
         `${book.id}-blank-genre`,
         book,
@@ -371,7 +480,7 @@ function buildBank(): Question[] {
         2,
       ),
     );
-    qs.push(
+    add(
       blank(
         `${book.id}-blank-period`,
         book,
@@ -383,7 +492,7 @@ function buildBank(): Question[] {
         2,
       ),
     );
-    qs.push(
+    add(
       blank(
         `${book.id}-blank-kind`,
         book,
@@ -396,7 +505,7 @@ function buildBank(): Question[] {
       ),
     );
 
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-theme`,
         book,
@@ -406,7 +515,7 @@ function buildBank(): Question[] {
         "ústní I",
       ),
     );
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-space`,
         book,
@@ -416,7 +525,7 @@ function buildBank(): Question[] {
         "ústní I",
       ),
     );
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-comp`,
         book,
@@ -426,7 +535,7 @@ function buildBank(): Question[] {
         "ústní I",
       ),
     );
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-chars`,
         book,
@@ -436,7 +545,7 @@ function buildBank(): Question[] {
         "ústní II",
       ),
     );
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-lang`,
         book,
@@ -446,17 +555,73 @@ function buildBank(): Question[] {
         "ústní III",
       ),
     );
-    qs.push(
+    add(
       oral(
         `${book.id}-oral-context`,
         book,
-        `Literárněhistorický kontext a autor ${book.title}.`,
+        `Literárněhistorický kontext a autor díla ${book.title}. Nepleť ho s jiným dílem téhož autora, pokud ho na seznamu máš.`,
         `${book.authorFull} (${book.life}). ${book.authorContext} ${book.literaryContext}`,
         [book.authorShort, book.period, book.life],
         "kontext",
       ),
     );
   }
+
+  const lakomec = BOOKS.find((b) => b.id === 1)!;
+  const tartuffe = BOOKS.find((b) => b.id === 2)!;
+  add(
+    mcq(
+      "moliere-pair",
+      lakomec,
+      "Která dvojice děl na seznamu je od téhož autora — Molièra?",
+      "Lakomec a Tartuffe",
+      [
+        "Lakomec a Revizor",
+        "Tartuffe a Kulička",
+        "Petr a Lucie a Malý princ",
+        "R.U.R. a Farma zvířat",
+      ],
+      "Molière má na seznamu dvě hry: Lakomec (próza) a Tartuffe (alexandríny).",
+      "zákeřné",
+      2,
+    ),
+  );
+  add(
+    mcq(
+      "moliere-not",
+      tartuffe,
+      "Které z těchto děl NENÍ od Molièra?",
+      "Revizor",
+      ["Lakomec", "Tartuffe", "Noc na Karlštejně"],
+      "Lakomec i Tartuffe jsou Molière. Revizor je Gogol.",
+      "zákeřné",
+      1,
+    ),
+  );
+  add(
+    blank(
+      "moliere-blank-kasa",
+      lakomec,
+      "Molièrova hra, kde hospodář zuří kvůli ukradené kasičce, se jmenuje ____.",
+      "Lakomec",
+      ["harpagon"],
+      "Lakomec. Tartuffe je o pokrytectví, ne o kasičce.",
+      "dílo",
+      2,
+    ),
+  );
+  add(
+    blank(
+      "moliere-blank-ban",
+      tartuffe,
+      "Molièrova hra, kterou církev na pět let zakázala, se jmenuje ____.",
+      "Tartuffe",
+      ["tartuf"],
+      "Tartuffe. Lakomec církev nezakázala.",
+      "dílo",
+      2,
+    ),
+  );
 
   const extras: Question[] = [
     {
@@ -497,6 +662,61 @@ function buildBank(): Question[] {
       options: shuffle(["prózou", "alexandrínem", "osmislabičným veršem", "volným veršem"]),
       answer: "prózou",
       explanation: "Lakomec je próza. Alexandríny má Tartuffe.",
+    },
+    {
+      id: "x-moliere-genre-split",
+      type: "mcq",
+      bookId: 1,
+      difficulty: 2,
+      category: "zákeřné",
+      prompt: "Lakomec je charakterová komedie. Tartuffe je…",
+      options: shuffle(["satirická komedie", "charakterová komedie taky", "tragédie", "veselohra o Karlu IV."]),
+      answer: "satirická komedie",
+      explanation: "Lakomec = charakterová (Harpagon). Tartuffe = satirická (pokrytectví, falešná zbožnost).",
+    },
+    {
+      id: "x-moliere-harpagon",
+      type: "mcq",
+      bookId: 1,
+      difficulty: 1,
+      category: "postavy",
+      prompt: "Harpagon je hlavní postava…",
+      options: shuffle(["Lakomce", "Tartuffa", "Revizora", "Král Lávry"]),
+      answer: "Lakomce",
+      explanation: "Harpagon = lakomec. Tartuffe je pokrytec u Orgona.",
+    },
+    {
+      id: "x-moliere-orgon",
+      type: "mcq",
+      bookId: 2,
+      difficulty: 1,
+      category: "postavy",
+      prompt: "Orgon a Dorina patří do díla…",
+      options: shuffle(["Tartuffe", "Lakomec", "Revizor", "Noc na Karlštejně"]),
+      answer: "Tartuffe",
+      explanation: "Orgon je zaslepený hospodář, Dorina hlas rozumu. V Lakomci je Harpagon, Kleant, Eliška.",
+    },
+    {
+      id: "x-moliere-deus-who",
+      type: "mcq",
+      bookId: 2,
+      difficulty: 3,
+      category: "zákeřné",
+      prompt: "Deus ex machina: příchod Anselma uzavírá ____, zásah krále uzavírá ____.",
+      options: shuffle(["Lakomce ; Tartuffa", "Tartuffa ; Lakomce", "Revizora ; Lakomce", "Tartuffa ; Revizora"]),
+      answer: "Lakomce ; Tartuffa",
+      explanation: "Lakomec = Anselmo. Tartuffe = král. Revizor má otevřený závěr, ne deus ex machina.",
+    },
+    {
+      id: "x-moliere-cover",
+      type: "mcq",
+      bookId: 2,
+      difficulty: 2,
+      category: "zákeřné",
+      prompt: "Která Molièrova postava hraje zbožného, ale jde jí o majetek a svádění?",
+      options: shuffle(["Tartuffe", "Harpagon", "Orgon", "Valér"]),
+      answer: "Tartuffe",
+      explanation: "Tartuffe = pokrytec. Harpagon = lakomec. Orgon = naivka, která Tartuffovi věří.",
     },
     {
       id: "x-deus",
@@ -554,12 +774,12 @@ function buildBank(): Question[] {
       category: "kompozice",
       prompt: "Zrcadlový kontrast v Kuličce znamená:",
       options: shuffle([
-        "Na začátku Kulička hostí všechny, na konci se s ní nikdo nerozdělí",
+        "Na začátku hrdinka hostí všechny, na konci se s ní nikdo nerozdělí",
         "Děj začíná i končí u stejné tůně",
         "Vypravěč přijde do hospody a zase odejde",
         "Sedm přikázání se postupně přepisuje",
       ]),
-      answer: "Na začátku Kulička hostí všechny, na konci se s ní nikdo nerozdělí",
+      answer: "Na začátku hrdinka hostí všechny, na konci se s ní nikdo nerozdělí",
       explanation: "Kruhová tůň = O myších a lidech. Rámec hospody = Podkoní a žák. Přikázání = Farma zvířat.",
     },
     {
@@ -807,8 +1027,8 @@ function buildBank(): Question[] {
     },
   ];
 
-  qs.push(...extras);
-  return qs.filter((q): q is Question => Boolean(q));
+  qs.push(...extras.filter((q) => !answerInPrompt(q.prompt, q.answer)));
+  return qs;
 }
 
 export const QUESTION_BANK: Question[] = buildBank();
@@ -849,8 +1069,11 @@ export function matchRound(kind: "author" | "character" | "period" | "genre", n 
     const pair =
       kind === "author"
         ? { left: book.title, right: book.authorShort, bookId: book.id }
-        : kind === "character" && book.characters[0]
-          ? { left: book.characters[0].name, right: book.title, bookId: book.id }
+        : kind === "character"
+          ? (() => {
+              const c = usableCharacter(book);
+              return c ? { left: c.name, right: book.title, bookId: book.id } : null;
+            })()
           : kind === "period"
             ? { left: book.title, right: book.period, bookId: book.id }
             : kind === "genre"
