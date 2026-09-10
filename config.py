@@ -29,6 +29,13 @@ def _optional_float(name: str, default: float | None) -> float | None:
     return float(raw)
 
 
+def _bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "ano"}
+
+
 @dataclass(frozen=True)
 class Settings:
     symbol: str = os.getenv("SYMBOL", "BTCUSDT")
@@ -44,6 +51,18 @@ class Settings:
     take_profit_pct: float | None = _optional_float("TAKE_PROFIT_PCT", 0.06)
     sample_csv: Path = ROOT / "data" / "sample_btc_usdt.csv"
     reports_dir: Path = ROOT / "reports"
+
+    # Exchange / real money
+    trading_mode: str = os.getenv("TRADING_MODE", "dry-run")  # dry-run|testnet|live
+    enable_live_trading: bool = _bool("ENABLE_LIVE_TRADING", False)
+    live_confirm: str = os.getenv("LIVE_CONFIRM", "")
+    binance_api_key: str = os.getenv("BINANCE_API_KEY", "")
+    binance_api_secret: str = os.getenv("BINANCE_API_SECRET", "")
+    binance_base_url: str = os.getenv("BINANCE_BASE_URL", "")
+    max_order_quote: float = _float("MAX_ORDER_QUOTE", 25.0)
+    max_daily_quote: float = _float("MAX_DAILY_QUOTE", 100.0)
+    min_order_quote: float = _float("MIN_ORDER_QUOTE", 5.0)
+    quote_per_buy: float = _float("QUOTE_PER_BUY", 15.0)
 
 
 settings = Settings()

@@ -153,3 +153,18 @@ src/market.py          CSV + Binance
 ## Disclaimer
 
 Vzdělávací projekt. Nejde o investiční doporučení. Krypto je rizikové.
+
+
+## 14. Ostrý trading (reálné peníze)
+
+Až pochopíš paper metriky, pokračuj v **[LIVE_TRADING.md](LIVE_TRADING.md)**.
+
+Shrnutí příkazů:
+
+```bash
+python bot.py account --mode dry-run
+python bot.py order --mode dry-run --side BUY --quote 10
+python bot.py trade --mode dry-run --strategy sma --iterations 3
+```
+
+Live je záměrně zamčené frází `ANO_CHCI_REALNE_PENIZE`.

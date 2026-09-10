@@ -55,6 +55,16 @@ data/sample_btc_usdt.csv
 tests/
 ```
 
+## Ostrý trading (reálné peníze)
+
+Nejdřív vždy dry-run. Detailní checklist: **[docs/LIVE_TRADING.md](docs/LIVE_TRADING.md)**
+
+```bash
+python bot.py order --mode dry-run --side BUY --quote 10
+python bot.py trade --mode dry-run --iterations 3
+# live až po ENABLE_LIVE_TRADING + LIVE_CONFIRM=ANO_CHCI_REALNE_PENIZE
+```
+
 ## Disclaimer
 
 Vzdělávací projekt. Nejde o investiční, daňové ani obchodní poradenství.
